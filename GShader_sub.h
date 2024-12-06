@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iostream>
 #include "blends.h"
+#include <numbers>
 
 class GShader_sub : public GShader {
 public:
@@ -12,12 +13,18 @@ public:
     bool gradient = false;
     bool tri_gradient = false;
     bool voroni = false;
+    bool sweep = false;
+    bool pos_gradient = false;
     int c_count;
     GColor colors[50];
     nonstd::optional<GMatrix> mxInv;
     nonstd::optional<GMatrix> ctmInv;
     GTileMode tilemode = GTileMode::kClamp;
     GPoint points[50];
+    float pos[50];
+    GPoint ctr;
+    float sRad;
+    float wedge_width;
     
 
 
@@ -50,6 +57,28 @@ public:
         for (int i = 0; i < count; i++) { 
             points[i] = ps[i];
             colors[i] = cs[i]; }
+    };
+
+    GShader_sub(GPoint center, float startRadians, const GColor cs[], int count) {
+        sweep = true;
+        c_count = count;
+        mxInv = GMatrix(1,0,0,0,1,0);
+        for (int i = 0; i < count; i++) { colors[i] = cs[i]; }
+        ctr = center;
+        sRad = startRadians;
+        wedge_width = (float)(2*M_PI)/count;
+        std::cout << wedge_width << "\n";
+        std::cout << c_count << "\n";
+    }
+
+    GShader_sub(GMatrix matrix_param, const GColor cs[], const float ps[], int num_colors) {
+        pos_gradient = true;
+        mxInv = GMatrix(matrix_param).invert();
+        for (int i = 0; i < num_colors; i++) { 
+            colors[i] = cs[i]; 
+            pos[i] = ps[i]; }
+        c_count = num_colors;
+        tilemode = GTileMode::kClamp;
     };
 
     ~GShader_sub() { return; }
@@ -92,7 +121,7 @@ public:
             pt[0] = {x + i + 0.5f, y + 0.5f}; //send the middle of the point
             lookup.mapPoints(pt, pt, 1); //multiply by inv matrices
             
-            if (!gradient && !tri_gradient && !voroni) { //protocol for map-based shader
+            if (!gradient && !tri_gradient && !voroni && !pos_gradient) { //protocol for map-based shader
                 if (tilemode == GTileMode::kClamp) {
                     if (pt[0].x >= map.width()) { pt[0].x = map.width() - 1; }  //clamp; drag edge color outside bm bounds
                     if (pt[0].x < 0) { pt[0].x = 0; }
@@ -113,7 +142,7 @@ public:
                 
                 row[i] = *(map.getAddr(int(pt[0].x), int(pt[0].y))); //use new coords to lookup bm color
             
-            } else if (gradient && !voroni) { //protocol for linear gradient
+            } else if (gradient && !voroni && !pos_gradient) { //protocol for linear gradient
 
                 if (tilemode == GTileMode::kClamp) {
                     if (pt[0].x < 0) { pt[0].x = 0; } 
@@ -154,7 +183,7 @@ public:
                 GColor c = pt[0].x*colors[1] + pt[0].y*colors[2] + (1-pt[0].x-pt[0].y)*colors[0];
                 row[i] = GColorToGPixel(c);
 
-            } else { //protocol for voroni
+            } else if (!pos_gradient) { //protocol for voroni
                 float dist = 10000000;
                 int small_i = 0;
                 for (int j=0; j<c_count; j++) {
@@ -165,6 +194,25 @@ public:
                     }
                 }
                 row[i] = GColorToGPixel(colors[small_i]);
+            } else if (sweep) {
+                //for a given point, find the angle from center
+                //determine which chunk of circle it falls into
+                //assign color accordingly
+                float ptRad = (float)std::atan((pt[0].y-ctr.y)/(pt[0].x-ctr.x));
+                // ptRad/wedge_width assumes you're centered at 0
+                // add sRad/wedge_width?
+                // then mod count?
+                // int j = (int)(ptRad/wedge_width + sRad/wedge_width + 0.5) % c_count;
+                int j = (int)(ptRad/wedge_width + 0.5);
+                row[i] = GColorToGPixel(colors[j]);
+            } else { //pos_gradient
+                if (pt[0].x < 0) { pt[0].x = 0; } 
+                if (pt[0].x > 1) { pt[0].x = 1; }
+
+                int j = (int)floor(pt[0].x * (c_count-1)); //index of first color to mix
+                float t = pt[0].x * (c_count-1) - j; //distance past first color on axis
+                GColor c = (1-t)*colors[j] + t*colors[j+1];
+                row[i] = GColorToGPixel(c);
             }
             
         }
