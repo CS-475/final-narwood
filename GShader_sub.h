@@ -4,7 +4,6 @@
 #include <cmath>
 #include <iostream>
 #include "blends.h"
-#include <cmath>
 
 class GShader_sub : public GShader {
 public:
@@ -12,11 +11,13 @@ public:
     GBitmap map;
     bool gradient = false;
     bool tri_gradient = false;
+    bool voroni = false;
     int c_count;
     GColor colors[50];
     nonstd::optional<GMatrix> mxInv;
     nonstd::optional<GMatrix> ctmInv;
     GTileMode tilemode = GTileMode::kClamp;
+    GPoint points[50];
     
 
 
@@ -40,6 +41,15 @@ public:
         for (int i = 0; i < 3; i++) { colors[i] = cs[i]; }
         c_count = 3;
         tilemode = mode;
+    };
+
+    GShader_sub(const GPoint ps[], const GColor cs[], int count) {
+        voroni = true;
+        c_count = count;
+        mxInv = GMatrix(1,0,0,0,1,0);
+        for (int i = 0; i < count; i++) { 
+            points[i] = ps[i];
+            colors[i] = cs[i]; }
     };
 
     ~GShader_sub() { return; }
@@ -82,7 +92,7 @@ public:
             pt[0] = {x + i + 0.5f, y + 0.5f}; //send the middle of the point
             lookup.mapPoints(pt, pt, 1); //multiply by inv matrices
             
-            if (!gradient && !tri_gradient) { //protocol for map-based shader
+            if (!gradient && !tri_gradient && !voroni) { //protocol for map-based shader
                 if (tilemode == GTileMode::kClamp) {
                     if (pt[0].x >= map.width()) { pt[0].x = map.width() - 1; }  //clamp; drag edge color outside bm bounds
                     if (pt[0].x < 0) { pt[0].x = 0; }
@@ -103,7 +113,7 @@ public:
                 
                 row[i] = *(map.getAddr(int(pt[0].x), int(pt[0].y))); //use new coords to lookup bm color
             
-            } else if (gradient) { //protocol for linear gradient
+            } else if (gradient && !voroni) { //protocol for linear gradient
 
                 if (tilemode == GTileMode::kClamp) {
                     if (pt[0].x < 0) { pt[0].x = 0; } 
@@ -121,7 +131,7 @@ public:
                 GColor c = (1-t)*colors[j] + t*colors[j+1];
                 row[i] = GColorToGPixel(c);
 
-            } else { //protocol for tri gradient
+            } else if (tri_gradient) { //protocol for tri gradient
 
                 if (tilemode == GTileMode::kClamp) {
                     if (pt[0].x < 0) { pt[0].x = 0; } 
@@ -144,6 +154,17 @@ public:
                 GColor c = pt[0].x*colors[1] + pt[0].y*colors[2] + (1-pt[0].x-pt[0].y)*colors[0];
                 row[i] = GColorToGPixel(c);
 
+            } else { //protocol for voroni
+                float dist = 10000000;
+                int small_i = 0;
+                for (int j=0; j<c_count; j++) {
+                    float curr_dist = (float)sqrt(pow((double)(points[j].x - pt[0].x), 2) + pow((double)(points[j].y-pt[0].y), 2));
+                    if (curr_dist < dist) {
+                        dist = curr_dist;
+                        small_i = j;
+                    }
+                }
+                row[i] = GColorToGPixel(colors[small_i]);
             }
             
         }
