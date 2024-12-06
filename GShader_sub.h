@@ -209,8 +209,17 @@ public:
                 if (pt[0].x < 0) { pt[0].x = 0; } 
                 if (pt[0].x > 1) { pt[0].x = 1; }
 
-                int j = (int)floor(pt[0].x * (c_count-1)); //index of first color to mix
-                float t = pt[0].x * (c_count-1) - j; //distance past first color on axis
+                // color[i] is positioned by computing (1 - pos[i])*p0 + pos[i]*p1
+                int j = 0;
+                for (int k = 0; k < c_count-1; k++ ) {
+                    if (pos[k] <= pt[0].x && pt[0].x <= pos[k+1]) { j = k; }
+                }
+                //int j = (int)floor(pt[0].x * (c_count-1)); //index of first color to mix
+                //float t = pt[0].x * (c_count-1) - j; //distance past first color on axis
+                float t;
+                if (j < c_count - 1) { //not the last color
+                    t = (pt[0].x - pos[j]) / (pos[j+1] - pos[j]);
+                } else { t = 0; }
                 GColor c = (1-t)*colors[j] + t*colors[j+1];
                 row[i] = GColorToGPixel(c);
             }
